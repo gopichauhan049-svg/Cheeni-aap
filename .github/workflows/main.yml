@@ -33,6 +33,7 @@ jobs:
         sudo apt-get install -y build-essential libffi-dev python3-dev zip unzip ccache git libssl-dev
         pip install --upgrade pip
         pip install buildozer cython
+              yes | sdkmanager --licenses || true
 
     - name: Build APK with Buildozer
       run: 
