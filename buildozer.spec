@@ -5,7 +5,7 @@ package.domain = org.chini
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 0.1
-requirements = python3,kivy,requests,urllib3,certifi
+requirements = python3,kivy,requests
 orientation = portrait
 fullscreen = 0
 
