@@ -1,157 +1,96 @@
-import os
-from datetime import datetime
+import threading
+import re
 
 from kivy.app import App
+from kivy.lang import Builder
 from kivy.clock import Clock
-from kivy.core.window import Window
-from kivy.metrics import dp
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.scrollview import ScrollView
+from kivy.utils import platform
 
 from plyer import tts
-from jnius import autoclass
-from android import activity
-from android.permissions import request_permissions, Permission
 
 
-REQUEST_CODE = 1234
+KV = """
+BoxLayout:
+    orientation: "vertical"
+    padding: "20dp"
+    spacing: "15dp"
+
+    Label:
+        text: "[b]चीनी ❤️[/b]"
+        markup: True
+        font_size: "32sp"
+        size_hint_y: 0.2
+
+    Label:
+        id: status
+        text: "नमस्ते! मैं चीनी हूँ। मुझसे बात करो।"
+        font_size: "19sp"
+        halign: "center"
+        valign: "middle"
+        text_size: self.width, None
+
+    ScrollView:
+        Label:
+            id: conversation
+            text: "चीनी: नमस्ते! मैं तुम्हारी मदद के लिए तैयार हूँ।"
+            font_size: "18sp"
+            size_hint_y: None
+            height: self.texture_size[1] + dp(20)
+            text_size: self.width, None
+
+    Button:
+        text: "🎤 चीनी से बात करो"
+        font_size: "20sp"
+        size_hint_y: 0.18
+        on_release: app.listen()
+
+    Button:
+        text: "🔊 जवाब दोबारा सुनो"
+        size_hint_y: 0.13
+        on_release: app.repeat_answer()
+"""
 
 
-class ChiniApp(App):
+class CheeniApp(App):
 
     def build(self):
-        Window.clearcolor = (0.08, 0.09, 0.15, 1)
+        self.last_answer = "नमस्ते! मैं चीनी हूँ। बताओ, क्या मदद चाहिए?"
+        self.listening = False
+        self.request_code = 7412
 
-        self.speech_ready = False
-        self.last_answer = ""
+        root = Builder.load_string(KV)
 
-        root = BoxLayout(
-            orientation="vertical",
-            padding=dp(20),
-            spacing=dp(15)
-        )
-
-        title = Label(
-            text="चीनी",
-            font_size=dp(34),
-            bold=True,
-            size_hint_y=None,
-            height=dp(65),
-            color=(0.65, 0.85, 1, 1)
-        )
-        root.add_widget(title)
-
-        subtitle = Label(
-            text="तुम्हारी अपनी AI असिस्टेंट",
-            font_size=dp(18),
-            size_hint_y=None,
-            height=dp(40)
-        )
-        root.add_widget(subtitle)
-
-        self.scroll = ScrollView(
-            size_hint=(1, 1),
-            do_scroll_x=False
-        )
-
-        self.message = Label(
-            text="नमस्ते! मैं चीनी हूँ।\n\nमुझसे बात करने के लिए नीचे बटन दबाओ।",
-            font_size=dp(21),
-            halign="center",
-            valign="top",
-            size_hint_y=None,
-            color=(1, 1, 1, 1),
-            padding=(dp(12), dp(15))
-        )
-
-        self.message.bind(
-            width=self.update_text_size,
-            texture_size=self.update_message_height
-        )
-
-        self.scroll.add_widget(self.message)
-        root.add_widget(self.scroll)
-
-        self.status = Label(
-            text="तैयार हूँ",
-            font_size=dp(15),
-            size_hint_y=None,
-            height=dp(35),
-            color=(0.65, 1, 0.7, 1)
-        )
-        root.add_widget(self.status)
-
-        self.listen_button = Button(
-            text="🎤  चीनी से बात करें",
-            font_size=dp(21),
-            size_hint_y=None,
-            height=dp(65),
-            background_normal="",
-            background_color=(0.18, 0.42, 0.85, 1)
-        )
-        self.listen_button.bind(on_press=self.listen)
-        root.add_widget(self.listen_button)
-
-        self.repeat_button = Button(
-            text="जवाब दोबारा सुनें",
-            font_size=dp(17),
-            size_hint_y=None,
-            height=dp(50)
-        )
-        self.repeat_button.bind(on_press=self.repeat_answer)
-        root.add_widget(self.repeat_button)
+        if platform == "android":
+            try:
+                from android import activity
+                activity.bind(
+                    on_activity_result=self.on_activity_result
+                )
+                from android.permissions import (
+                    request_permissions,
+                    Permission
+                )
+                request_permissions([
+                    Permission.RECORD_AUDIO
+                ])
+            except Exception as e:
+                print("Android setup:", e)
 
         return root
 
-    def update_text_size(self, instance, width):
-        instance.text_size = (max(0, width - dp(25)), None)
+    def listen(self):
+        if self.listening:
+            self.root.ids.status.text = "मैं सुन रही हूँ..."
+            return
 
-    def update_message_height(self, instance, texture_size):
-        instance.height = max(
-            texture_size[1] + dp(30),
-            dp(100)
-        )
-
-    def on_start(self):
-        activity.bind(on_activity_result=self.on_activity_result)
-
-        request_permissions(
-            [
-                Permission.RECORD_AUDIO,
-                Permission.INTERNET
-            ],
-            self.permission_result
-        )
-
-    def permission_result(self, permissions, grants):
-        if all(grants):
-            self.status.text = "माइक्रोफोन की अनुमति मिल गई"
-        else:
-            self.status.text = "सेटिंग में माइक्रोफोन की अनुमति दें"
-
-    def show_message(self, text):
-        self.message.text = text
-        Clock.schedule_once(self.scroll_to_bottom, 0.15)
-
-    def scroll_to_bottom(self, dt):
-        self.scroll.scroll_y = 0
-
-    def speak(self, text):
-        self.last_answer = text
+        if platform != "android":
+            self.root.ids.status.text = (
+                "कृपया Android मोबाइल पर इस्तेमाल करें।"
+            )
+            return
 
         try:
-            tts.speak(text)
-        except Exception as error:
-            self.status.text = "आवाज़ में समस्या हुई"
-            print("TTS error:", error)
-
-    def listen(self, instance):
-        try:
-            self.listen_button.disabled = True
-            self.status.text = "तुम्हारी बात सुन रही हूँ..."
-            self.show_message("बोलिए, मैं सुन रही हूँ।")
+            from jnius import autoclass
 
             Intent = autoclass("android.content.Intent")
             RecognizerIntent = autoclass(
@@ -169,46 +108,55 @@ class ChiniApp(App):
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-
             intent.putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE,
                 "hi-IN"
             )
-
+            intent.putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,
+                "hi-IN"
+            )
+            intent.putExtra(
+                RecognizerIntent.EXTRA_MAX_RESULTS, 1
+            )
             intent.putExtra(
                 RecognizerIntent.EXTRA_PROMPT,
-                "चीनी से हिंदी में बात करें"
+                "चीनी से बात करें"
+            )
+
+            self.listening = True
+            self.root.ids.status.text = (
+                "चीनी सुन रही है... आराम से पूरी बात बोलो।"
             )
 
             PythonActivity.mActivity.startActivityForResult(
-                intent,
-                REQUEST_CODE
+                intent, self.request_code
             )
 
-        except Exception as error:
-            self.listen_button.disabled = False
-            self.status.text = "आवाज़ शुरू नहीं हो सकी"
-            self.show_message(
-                "माफ कीजिए, माइक्रोफोन शुरू नहीं हुआ। "
-                "माइक्रोफोन की अनुमति जाँचें।"
+        except Exception as e:
+            self.listening = False
+            self.root.ids.status.text = (
+                "माइक्रोफ़ोन शुरू नहीं हुआ। दोबारा कोशिश करो।"
             )
-            print("Listen error:", error)
+            print("Listen error:", e)
 
-    def on_activity_result(self, request_code, result_code, intent):
-        if request_code != REQUEST_CODE:
+    def on_activity_result(
+        self, request_code, result_code, intent
+    ):
+        if request_code != self.request_code:
             return
 
-        self.listen_button.disabled = False
+        self.listening = False
 
         if result_code != -1 or intent is None:
-            self.status.text = "फिर से कोशिश करें"
-            self.show_message(
-                "मैं तुम्हारी बात नहीं सुन पाई। "
-                "बटन दबाकर दोबारा बोलो।"
+            self.root.ids.status.text = (
+                "मैं तुम्हारी बात नहीं सुन पाई। फिर कोशिश करो।"
             )
             return
 
         try:
+            from jnius import autoclass
+
             RecognizerIntent = autoclass(
                 "android.speech.RecognizerIntent"
             )
@@ -218,112 +166,99 @@ class ChiniApp(App):
             )
 
             if results is None or results.size() == 0:
-                self.status.text = "आवाज़ समझ नहीं आई"
-                self.show_message("कृपया फिर से बोलिए।")
+                self.root.ids.status.text = (
+                    "आवाज़ समझ नहीं आई। फिर बोलो।"
+                )
                 return
 
-            spoken_text = str(results.get(0))
+            text = str(results.get(0)).strip()
 
-            self.status.text = "तुमने कहा: " + spoken_text
-            self.show_message("तुमने कहा:\n" + spoken_text)
+            if not text:
+                self.root.ids.status.text = (
+                    "कुछ सुनाई नहीं दिया। फिर कोशिश करो।"
+                )
+                return
 
-            Clock.schedule_once(
-                lambda dt: self.reply(spoken_text),
-                0.3
+            self.root.ids.conversation.text += (
+                "\\n\\nतुम: " + text
             )
 
-        except Exception as error:
-            self.status.text = "बात समझने में समस्या हुई"
-            self.show_message(
-                "माफ कीजिए, मैं अभी तुम्हारी बात समझ नहीं पाई।"
-            )
-            print("Recognition error:", error)
+            answer = self.get_answer(text)
+            self.speak(answer)
 
-    def reply(self, text):
+        except Exception as e:
+            self.root.ids.status.text = (
+                "जवाब तैयार करने में परेशानी हुई।"
+            )
+            print("Result error:", e)
+
+    def get_answer(self, text):
         message = text.lower().strip()
 
         if any(word in message for word in [
-            "नमस्ते", "हेलो", "हैलो", "हाय"
+            "नमस्ते", "हेलो", "हाय", "hello", "hi"
         ]):
-            answer = (
-                "नमस्ते! मैं चीनी हूँ। "
-                "बताइए, मैं आपकी क्या मदद करूँ?"
-            )
+            return "हेलो बाबू! ❤️ मैं चीनी हूँ। बताओ, कैसे हो?"
 
-        elif any(word in message for word in [
-            "तुम्हारा नाम", "नाम क्या", "कौन हो"
+        if any(word in message for word in [
+            "तुम्हारा नाम", "तुम कौन", "नाम क्या"
         ]):
-            answer = "मेरा नाम चीनी है। मैं तुम्हारी असिस्टेंट हूँ।"
+            return "मेरा नाम चीनी है। मैं तुम्हारी पर्सनल असिस्टेंट हूँ।"
 
-        elif any(word in message for word in [
-            "कैसी हो", "कैसे हो", "क्या हाल"
+        if any(word in message for word in [
+            "कैसी हो", "कैसे हो"
         ]):
-            answer = "मैं अच्छी हूँ! तुम कैसे हो?"
+            return "मैं अच्छी हूँ! तुमसे बात करके अच्छा लगा।"
 
-        elif any(word in message for word in [
+        if any(word in message for word in [
             "समय", "टाइम", "कितने बजे"
         ]):
-            current_time = datetime.now().strftime("%I:%M")
-            answer = "अभी समय है " + current_time
+            from datetime import datetime
+            return "अभी समय है " + datetime.now().strftime("%I:%M %p")
 
-        elif any(word in message for word in [
-            "तारीख", "आज कौन सा दिन", "आज की डेट"
+        if any(word in message for word in [
+            "बाय", "अलविदा", "good night"
         ]):
-            answer = "आज की तारीख है " + datetime.now().strftime("%d-%m-%Y")
+            return "ठीक है बाबू, अपना ध्यान रखना। ❤️"
 
-        elif any(word in message for word in [
-            "धन्यवाद", "शुक्रिया", "थैंक यू"
-        ]):
-            answer = "तुम्हारा स्वागत है। मैं तुम्हारी मदद के लिए हूँ।"
+        return (
+            "बाबू, मैंने तुम्हारी बात सुनी: "
+            + text
+            + "। अभी मुझे इस सवाल का जवाब देना नहीं सिखाया गया है।"
+        )
 
-        elif any(word in message for word in [
-            "गुड मॉर्निंग", "सुप्रभात"
-        ]):
-            answer = "सुप्रभात! तुम्हारा दिन अच्छा और खुशियों भरा हो।"
+    def speak(self, answer):
+        self.last_answer = answer
 
-        elif any(word in message for word in [
-            "गुड नाइट", "शुभ रात्रि"
-        ]):
-            answer = "शुभ रात्रि! अच्छे से सोना और मीठे सपने देखना।"
+        self.root.ids.conversation.text += (
+            "\\n\\nचीनी: " + answer
+        )
+        self.root.ids.status.text = "चीनी जवाब दे रही है..."
 
-        elif any(word in message for word in [
-            "बाय", "अलविदा"
-        ]):
-            answer = "ठीक है! जब भी जरूरत हो, मुझे बुला लेना।"
+        def say():
+            try:
+                tts.speak(answer)
+                Clock.schedule_once(
+                    lambda dt: self.set_ready(), 1
+                )
+            except Exception as e:
+                print("TTS error:", e)
+                Clock.schedule_once(
+                    lambda dt: self.set_ready(), 0
+                )
 
-        else:
-            answer = (
-                "मैंने सुना कि तुमने कहा: "
-                + text
-                + "। अभी मैं सीमित सवालों के जवाब दे सकती हूँ। "
-                "मुझे आगे और बेहतर बनाया जाएगा।"
-            )
+        threading.Thread(
+            target=say, daemon=True
+        ).start()
 
-        self.show_message("चीनी:\n" + answer)
-        self.status.text = "जवाब दे रही हूँ..."
-        self.speak(answer)
-        Clock.schedule_once(self.ready_again, 1.5)
+    def set_ready(self):
+        self.root.ids.status.text = (
+            "अब तुम दोबारा मुझसे बात कर सकते हो।"
+        )
 
-    def ready_again(self, dt):
-        self.status.text = "तैयार हूँ"
-
-    def repeat_answer(self, instance):
-        if self.last_answer:
-            self.speak(self.last_answer)
-        else:
-            self.status.text = "पहले मुझसे बात करो"
-
-    def on_pause(self):
-        return True
-
-    def on_stop(self):
-        try:
-            activity.unbind(
-                on_activity_result=self.on_activity_result
-            )
-        except Exception:
-            pass
+    def repeat_answer(self):
+        self.speak(self.last_answer)
 
 
 if __name__ == "__main__":
-    ChiniApp().run()
+    CheeniApp().run()
