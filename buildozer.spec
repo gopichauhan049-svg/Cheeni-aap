@@ -20,6 +20,7 @@ version = 0.1
 
 # (list) Application requirements
 requirements = python3,kivy,plyer,requests
+android.archs = arm64-v8a
 
 # (str) Customized icon
 #icon.filename = %(source.dir)s/data/icon.png
