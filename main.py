@@ -278,7 +278,7 @@ class CheeniApp(App):
             try:
                 from cheeni_config import GEMINI_API_KEY
             except ImportError:
-                GEMINI_API_KEY = ""
+                GEMINI_API_KEY = "AQ.Ab8RN6I1R86forw5xLQTOgrGZNu_ohCinfk2d3N9S-tcE1VNFQ"
 
             if not GEMINI_API_KEY:
                 raise RuntimeError(
